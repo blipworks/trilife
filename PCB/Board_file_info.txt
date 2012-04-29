@@ -1,0 +1,7 @@
+Board files include
+Trilife1 board and schematic in Eagle 6.0. This is a single board and a power connector.
+
+Trilife5 board; this is an array of the Trilife 1 that fits in the maximum free Eagle footprint and can be cut apart with PCB chopper--board and schematic aren't consistent because there are multiple copies.
+
+Trilife5 Zipped files are the Gerber files to send to the board manufacturer for the arrayed board.
+

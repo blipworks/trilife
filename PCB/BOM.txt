@@ -1,0 +1,13 @@
+Bill of Materials for Trilife Board
+
+R1, R2, R3, R4: 220 ohm 1/4 watt resistor, Digikey 220KQBK-ND
+U1 PIC10F322, DigiKey PIC10F322-I/P-ND
+LED Red, Kingbright 5mm dia, wide angle. Digikey 754-1564-ND
+C1 0.1 uF, 0.1" lead spacing ceramic capacitor. Adafruit product 753 or similar
+
+Foot: #4-40x1.5 inch screw, McMaster 91772A119
+
+Spacer: Nylon 1.25 inch long, 0.25 inch outer diameter, for #4 screw, McMaster 94639A210
+
+Socket (2 pcs) 4-position 0.1" pitch right angle socket, Digikey S5479-ND
+Plug (1 pc) 4-pin 0.1" pitch right angle header, Digikey 609-3319-ND

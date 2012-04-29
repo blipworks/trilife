@@ -1,0 +1,979 @@
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  1
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00001 ;**********************************************************************
+                      00002 ;                                                                     *
+                      00003 ;    Filename:      TrilifeWithSensing.asm                          *
+                      00004 ;    Date:              1/24/2012                                      *
+                      00005 ;    File Version:         1                                          *
+                      00006 ;                                                                     *
+                      00007 ;    Author:            CK Harnett                                    *
+                      00008 ;    Company:         Blipworks                                       *
+                      00009 ;                                                                     *
+                      00010 ;                                                                     *
+                      00011 ;**********************************************************************
+                      00012 ;                                                                     *
+                      00013 ;    Files Required: P10F322.INC                                      *
+                      00014 ;                                                                     *
+                      00015 ;**********************************************************************
+                      00016 ;                                                                     *
+                      00017 ;    Notes:       Based on 10F222 template found in MPLAB 8.76        *
+                      00018 ;         Maybe there is a 10F322 template from Microchip by now      *
+                      00019 ;   Blink LED on pin RA2 using Timer0 interrupt.                      *
+                      00020 ;   RA2 chosen because                                                *
+                      00021 ;   it isn't used for in-circuit serial programming (ICSP)            *
+                      00022 ;   RA0 and RA1 have hardware PWM that would be great for controlling *
+                      00023 ;   the LED but both of those pins are needed for ICSP                *
+                      00024 ;   so to drive an LED with pin 0 or 1                                *
+                      00025 ;   and be able to reprogram the soldered PIC maybe neeeds a jumper   *
+                      00026 ;   and RA3 is input only.                                            *
+                      00027 ;**********************************************************************
+                      00028 
+                      00029 ; use pickit3 or icd3 to program 322
+                      00030 ; I like the lower power option 1.8v on the 10LF322 to run off 2 nimh
+                      00031 ; Also like the 2 timers, use this to do counting on one pin
+                      00032 ; while blinking on another. 222 has only one timer and is not much cheaper
+                      00033 
+                      00034 
+                      00035         list      p=PIC10F322            ; list directive to define processor
+                      00036         #include <P10F322.INC>        ; processor specific variable definitions
+                      00001         LIST
+                      00002 
+                      00003 ;==========================================================================
+                      00004 ;  MPASM PIC10F322 processor include
+                      00005 ; 
+                      00006 ;  (c) Copyright 1999-2011 Microchip Technology, All rights reserved
+                      00007 ;==========================================================================
+                      00008 
+                      00709         LIST
+                      00037 
+                      00038 ;Original 10F222 code:  __CONFIG   _MCLRE_ON & _CP_OFF & _WDT_OFF & _MCPU_OFF & _IOFSCS_4MHZ
+                      00039 
+                      00040 
+2007   3EA6           00041  __CONFIG   _CP_OFF & _FOSC_INTOSC & _WDTE_OFF & _MCLRE_OFF & _LVP_OFF
+                      00042 
+                      00043 
+                      00044 ;***** PIN DEFINITIONS
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  2
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+  00000002            00045 LED equ 0x02; LED on pin RA2
+                      00046 
+                      00047 ;***** VARIABLE DEFINITIONS
+  00000004            00048 LED_BITMAP equ 0x04;  it's what you xor with LATA to toggle 5V on pin RA2
+  00000008            00049 STATE_PERIOD equ 0x08; trying a faster speed
+                      00050 ;STATE_PERIOD equ 0x10; constant telling how many tmr2 cycles to hold in each state
+  00000004            00051 NUM_STATES equ 0x04; Number of states, for example 0x04 means four states 0,1,2 and 3. You still have to
+                             define each state's brightness
+  00000003            00052 NUM_NEIGHBORS equ 0x03; Number of neighbors in trianguar array
+  00000004            00053 MIN_COUNTS equ 0x04; must be at least four positive transitions during the timer2 period to signal an ac
+                            tive neighbor--
+                      00054 ;MAX_COUNTS equ 0x0A; if you had more than 10 counts then your neighbor was in state 1,2, or 3.
+  0000000C            00055 MAX_COUNTS equ 0x0C; if you had more than 13 counts, your neighbor was in state 1,2,or 3
+  0000000A            00056 SHAKE_UP equ 0x0A; after this many cycles stuck at highest state, go into a random state
+  00000040            00057 intrW equ 0x40; used in interrupt to save w
+  00000041            00058 intrStatus equ 0x41; used in interrupt to save status
+  00000042            00059 offtmr equ 0x42;holds settings for "off" time of LED in a given cell state
+  00000043            00060 ontmr equ 0x43;holds settings for "on" time of LED in a given cell state
+  00000044            00061 mystate equ 0x44; keeps track of state of cell
+  00000045            00062 tmr2cycles equ 0x45; keeps track of how many tmr2 cycles have elapsed
+  00000046            00063 maxcheck equ 0x46; this is zero when we go one past the maximum state
+  00000047            00064 watchingpin equ 0x47; cycle between pins to watch, ra0 ra1 and ra3
+  00000048            00065 pincycle equ 0x48; a cyclic index into watchingpin, it's 0 1 2 3
+  00000049            00066 oncounts equ 0x49; keep track of positive pin transitions when checking neighbors' statesw
+  0000004A            00067 zeroneighbor equ 0x4A; keep track of whether a zero neighbor was found, but delay responding for one cyc
+                            le
+  0000004B            00068 delcounter equ 0x4B; make a 200 microsecond delay for temp conversion
+  0000004C            00069 lifecounter equ 0x4C; count whether we reached SHAKE_UP number of cycles at highest state
+                      00070 
+                      00071 
+                      00072 
+                      00073 
+                      00074 ;**********************************************************************
+00FF                  00075         ORG     0xFF             ; processor reset vector
+                      00076 
+                      00077 ; Internal RC calibration value is placed at location 0xFF by Microchip
+                      00078 ; as a movlw k, where the k is a literal value.
+                      00079 
+0000                  00080         ORG     0x000             ; coding begins here
+                      00081         ;movwf   OSCCAL            ; I tried to update register with factory cal value, but OSCCAL is no
+                            t defined in the 322 include file
+                      00082     
+                      00083 ; I left the above in from the 222 template
+0000   3050           00084     movlw 0x50; 
+0001   0090           00085     movwf OSCCON; this sets up a 4 MHz clock (each instruction 1 microsecond)
+0002   2818           00086     goto Start
+                      00087 
+0004                  00088     ORG 0x04; Interrupt routine saves W and STATUS, then toggles led
+0004   00C0           00089     movwf intrW
+0005   0E03           00090     swapf STATUS,w
+0006   00C1           00091     movwf intrStatus
+                      00092     
+0007   190B           00093     btfsc INTCON,TMR0IF; do next only if it was tmr0 that caused the interrupt
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  3
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0008   207D           00094     call tmr0iserv
+0009   110B           00095     bcf INTCON,TMR0IF; re-enable tmr0 interrupts
+                      00096  
+000A   188C           00097     btfsc PIR1,TMR2IF; do next only if it was tmr2 that caused the interrupt
+000B   2084           00098     call tmr2iserv
+000C   108C           00099     bcf PIR1, TMR2IF; re-enable tmr2 interrupts
+                      00100 
+                      00101     ;btfsc IOCAF,0;check if it was an interrupt-on-change on whatever pin, only one pin (or none) should
+                             be enabled for IOC at any time
+000D   181C           00102     btfsc IOCAF,0
+000E   20AD           00103     call pin013iserv;
+                      00104     
+000F   189C           00105     btfsc IOCAF,1
+0010   20AD           00106     call pin013iserv;
+                      00107 
+0011   199C           00108     btfsc IOCAF,3
+0012   20AD           00109     call pin013iserv;
+                      00110 
+                      00111     ;restore w and status
+0013   0E41           00112     swapf intrStatus,w
+0014   0083           00113     movwf STATUS
+0015   0EC0           00114     swapf intrW,f
+0016   0E40           00115     swapf intrW,w
+                      00116 
+0017   0009           00117     retfie;return from interrupt
+                      00118 
+                      00119  
+                      00120     
+                      00121 
+                      00122 
+                      00123 
+0018                  00124 Start:
+0018   1108           00125    bcf ANSELA,LED; Make LED pin digital
+0019   1106           00126    bcf TRISA,LED; make LED pin an output
+                      00127 
+                      00128    ; make all other pins digital inputs!!!
+001A   1008           00129    bcf ANSELA,0;maybe this important
+001B   1406           00130    bsf TRISA,0;
+001C   1409           00131    bsf WPUA,0; enabling pullup on inputs is important for avoiding random flipping btw states
+001D   1088           00132    bcf ANSELA,1
+001E   1486           00133    bsf TRISA,1
+001F   1489           00134    bsf WPUA,1
+0020   1188           00135    bcf ANSELA,3; unimplemented, its always 0 (port RA3 being a digital input only)
+0021   1586           00136    bsf TRISA,3; unimplemented, it's always 1
+0022   1589           00137    bsf WPUA,3
+                      00138 
+                      00139    ;fill offtmr variable
+0023   3000           00140    movlw b'00000000';
+0024   00C2           00141    movwf offtmr;
+                      00142 
+                      00143    ;fill ontmr variable
+0025   3003           00144    movlw b'00000011';
+0026   00C3           00145    movwf ontmr;
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  4
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00146 
+                      00147    ;set up cell state checker
+0027   3004           00148    movlw NUM_STATES
+0028   00C6           00149    movwf maxcheck;
+                      00150 
+                      00151    ;set up which pin is being watched for neighbor state: RA0, RA1 or RA3
+0029   01C7           00152    clrf watchingpin; start at RA0
+002A   3003           00153    movlw 0x03;
+002B   00C8           00154    movwf pincycle; set initial pin input to RA0
+002C   01C9           00155    clrf oncounts;
+002D   01CA           00156    clrf zeroneighbor;start out with no neighbors known in state 0
+                      00157 
+002E   300A           00158    movlw SHAKE_UP
+002F   00CC           00159    movwf lifecounter; set up number of cycles to wait at top state before randomizing
+                      00160 
+0030   30FF           00161    movlw 0xFF; set tmr2 period
+0031   0092           00162    movwf PR2
+                      00163 
+                      00164    ;initialize tmr2cycles
+0032   3008           00165    movlw STATE_PERIOD
+0033   00C5           00166    movwf tmr2cycles;
+                      00167 
+                      00168    ;initialize state variable with zero, later make it random at startup
+0034   01C4           00169    clrf mystate
+0035   2047           00170    call randomstate
+                      00171    ;Set up timer 0 for interrupts and set up Option register, let weak pullups be enabled by setting fir
+                            st bit to 0
+0036   3004           00172    movlw b'00000100';1:32 presc, I can't see this one blinking.
+0037   008E           00173    movwf OPTION_REG; 
+                      00174 
+0038   30A3           00175    movlw b'10100011';Also enable peripheral and global interrupts
+0039   008B           00176    movwf INTCON
+                      00177   
+003A   148D           00178    bsf PIE1,TMR2IE; enable tmr2 interrupts 
+                      00179       ;Set up timer2 and turn it on
+003B   301F           00180    movlw b'00011111';for a medium length cyc of about 65 ms, from 4x postscaler and 64x prescaler
+003C   0093           00181    movwf T2CON;
+                      00182 
+003D                  00183 again:
+003D   0844           00184     movf mystate,w
+003E   206B           00185     call myofftime; set off-time for the cell state
+003F   00C2           00186     movwf offtmr
+0040   0844           00187     movf mystate,w
+0041   2071           00188     call myontime; set on-time for the cell state
+0042   00C3           00189     movwf ontmr
+0043   0848           00190     movf pincycle,w;  
+0044   2077           00191     call whichpin; look up which pin we are watching
+0045   00C7           00192     movwf watchingpin
+                      00193     ;set up watchingpin for interrupt on change by overwriting watchingpin to iocap register
+                      00194     ;could sleep here? need to respond to tmr0 and tmr1 interrupts though
+0046   283D           00195     goto again ;program loops here and interrupts toggle the led and state
+                      00196 
+0047   169D           00197 randomstate bsf FVRCON,TSEN; we will use LSB of the 320/322's temperature sensor to set mystate to a ran
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  5
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                            dom state
+0048   121D           00198    bcf FVRCON,TSRNG; set temp sensor range so it works with the low power version of the 320/322 as well
+                             as 5V version
+0049   30D9           00199    movlw b'11011001'; set up A/D converter to use 64x clock prescaler, temp sensor, and enable it
+004A   009F           00200    movwf ADCON;
+004B   3064           00201    movlw d'100';
+004C   00CB           00202    movwf delcounter;
+004D   2063           00203    call lildelay
+004E   149F           00204    bsf ADCON,1; start A/D converter by setting GO bit to 1, I was supposed to wait 200 microseconds
+004F   189F           00205 newbit btfsc ADCON,1; keep checking not-done bit of A/D conversion
+0050   284F           00206    goto newbit; get out if not-done bit becomes 0
+0051   1044           00207    bcf mystate,0; clear last bit of mystate, need if I call randomstate from somewhere else
+0052   181E           00208    btfsc ADRES,0; look at lsb of temperature conversion result
+0053   1444           00209    bsf mystate,0; set last bit of mystate if lsb of temperature meas was 1
+0054   3064           00210    movlw d'100';
+0055   00CB           00211    movwf delcounter;
+0056   2063           00212    call lildelay
+0057   149F           00213    bsf ADCON,1; start another A/D temperature conversion
+0058   189F           00214 nextbit btfsc ADCON,1; 
+0059   2858           00215    goto nextbit; get out if not-done becomes 0
+005A   10C4           00216    bcf mystate,1; clear 2nd to last bit of mystate
+005B   181E           00217    btfsc ADRES,0; and use next lsb to set 2nd bit of mystate, seems more random if I used 2nd to lsb of 
+                            conversion result
+005C   14C4           00218    bsf mystate,1; set 2nd to last bit of mystate if lsb of next temperature meas was 1
+005D   101F           00219    bcf ADCON,ADON; disable A/D converter, could save power
+005E   129D           00220    bcf FVRCON,TSEN; disable temperature sensor, this is supposed to save pwr
+005F   0844           00221    movf mystate,w; make sure mystate matches up with maxcheck
+0060   2066           00222    call setmaxcheck;
+0061   00C6           00223    movwf maxcheck;
+0062   0008           00224    return 
+                      00225 
+0063   0BCB           00226 lildelay  decfsz delcounter,f;
+0064   2863           00227    goto lildelay
+0065   0008           00228    return
+                      00229 
+0066   0782           00230 setmaxcheck addwf PCL,F; get right maxcheck for a given state, need if we generate a new state using ran
+                            domstate
+0067   3404           00231    retlw 0x04; state 0
+0068   3403           00232    retlw 0x03; state 1
+0069   3402           00233    retlw 0x02; state 2
+006A   3401           00234    retlw 0x01; state 3
+                      00235 
+006B   0782           00236 myofftime addwf PCL,F; get LED off-time for a given state
+006C   3400           00237         retlw b'00000000';state 0 2xprescaler
+006D   3401           00238     retlw b'00000001';state 1 4x prescaler
+006E   3402           00239     retlw b'00000010';state 2  8xprescaler
+006F   3403           00240     retlw b'00000011';state 3  16xprescaler
+                      00241     ;retlw b'00000100';state 0 32xprescaler ; Cindy swapped around so it hangs out in dimmest state
+                      00242     ;retlw b'00000010';state 1 8x prescaler
+                      00243     ;retlw b'00000001';state 2  4xprescaler
+                      00244     ;retlw b'00000000';state 3  2xprescaler
+0070   0000           00245     nop; just incase interrupt during state overflow
+                      00246 
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  6
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0071   0782           00247 myontime addwf PCL,F;get LED on-time for a given state
+0072   3404           00248     retlw b'00000100';state 0  32xprescaler
+0073   3402           00249     retlw b'00000010';state 1  8xprescaler
+0074   3401           00250     retlw b'00000001';state 2  4xprescaler
+0075   3400           00251     retlw b'00000000';state 3  2xprescaler
+                      00252     ;retlw b'00000000';state 0  2xprescaler
+                      00253     ;retlw b'00000001';state 1  4xprescaler
+                      00254     ;retlw b'00000010';state 2  8xprescaler
+                      00255     ;retlw b'00000011';state 3  16xprescaler
+0076   0000           00256     nop; just incase interrupt during state overflow
+                      00257 
+0077   0782           00258 whichpin addwf PCL,F; get which pin is being watched 
+0078   3401           00259     retlw b'00000001';RA0(in case watchingpin=0)
+0079   3402           00260     retlw b'00000010';RA1 
+007A   3408           00261     retlw b'00001000';RA3
+007B   3401           00262     retlw b'00000001';RA0
+007C   0000           00263     nop; in case try index one out of range
+                      00264     ;retlw b'00000001'; RA0 (in case you wind up with watchingpin =0)
+                      00265     ;retlw b'00000001'; RA0 again
+                      00266     ;retlw b'00000010'; RA1 
+                      00267     ;retlw b'00001000'; RA3 corresponds to watchingpin =3
+                      00268     ;nop; in case try to index one out of range
+                      00269 
+                      00270 
+007D   3004           00271 tmr0iserv movlw LED_BITMAP     ;use tmr0 to toggle led fast for intensity control (pwm)
+007E   0687           00272     xorwf LATA,F 
+                      00273 
+                      00274     ;change timer prescaler to set time elapsed before next tmr0 interrupt
+007F   0842           00275         movf offtmr,w; set LED off time
+0080   1907           00276     btfsc LATA,LED; check LED state (not cell state), skip next if LED is off now
+0081   0843           00277     movf ontmr,w ; set LED on time    
+0082   008E           00278     movwf OPTION_REG
+                      00279         
+0083   0008           00280         return
+                      00281 
+0084   0BC5           00282 tmr2iserv  decfsz tmr2cycles,f ;use tmr2 to step between cell states
+0085   0008           00283     return; done if we didn't hit zero
+0086   3008           00284     movlw STATE_PERIOD ; otherwise reset tmr2cycles
+0087   00C5           00285     movwf tmr2cycles
+0088   0AC4           00286     incf mystate,f;auto-increment cell state
+0089   0BC6           00287     decfsz maxcheck,f; and decrement overflow checker
+008A   0008           00288     return ; done if we haven't hit the maximum state
+008B   184A           00289     btfsc zeroneighbor,0; zero neighbor flag is set only if a zero neighbor was found in previous cycle
+008C   28A4           00290     goto foundzero
+008D   03C4           00291     decf mystate,f; hold it back at max state and start checking neighbors for zeroes
+008E   0AC6           00292     incf maxcheck,f;and undo auto-decrement on maxcheck 
+008F   0BC8           00293     decfsz pincycle,f; makes it so we are going to check a new pin next time through,
+0090   2893           00294     goto skipto; do this if we didn't reduce pincycle to zero
+0091   3003           00295     movlw 0x03; 
+0092   00C8           00296     movwf pincycle; if we got a zero set pincycle back to 3, watching RA0 next time
+0093   158B           00297 skipto bsf INTCON,IOCIE;new--enable interrupt on change (set IOCIE bit in INTCON register)
+                      00298     ;set the interrupt on positive change  (IOCAP) only for whatever pin we are watching, using xorwf
+0094   0847           00299     movf watchingpin,w;
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  7
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00300     ;xorwf IOCAP,f;
+0095   009A           00301     movwf IOCAP;Cindy changed 4-26, wonder if this is better than xorwf in case watchingpin hasn't chang
+                            ed
+0096   3001           00302     movlw 0x01; go for one tmr2 cycle to watch a neighbor
+0097   00C5           00303     movwf tmr2cycles
+0098   0849           00304     movf oncounts,w;
+0099   3C0C           00305     sublw MAX_COUNTS; subtract oncounts from MAX_COUNTS
+009A   1C03           00306     btfss STATUS,C; carry flag is set if oncounts was less than or equal to Max Counts, could be a zero 
+                            neighbor
+009B   28AB           00307     goto endtmr2iserv; if you got here a neighbor in state 1 or higher was found
+009C   3004           00308     movlw MIN_COUNTS; Now compare number of counts with MIN_COUNTS
+009D   0249           00309     subwf oncounts,w
+009E   1C03           00310     btfss STATUS,C; carry flag is set if oncounts was less than or equal to mincounts
+009F   28AB           00311     goto endtmr2iserv; if set there was no active neighbor on this pin (probably is on the edge)
+00A0   144A           00312     bsf zeroneighbor,0; set zero neighbor bit if you got here, but continue to hang out for one last cyc
+                            le in top state
+00A1   3008           00313     movlw STATE_PERIOD; this sets the delayed response time for nice looking propagation, but it is a bi
+                            t slow at STATE_PERIOD and too fast at 1
+00A2   00C5           00314     movwf tmr2cycles;
+00A3   28AB           00315     goto endtmr2iserv;
+00A4   104A           00316 foundzero  bcf zeroneighbor,0; clear zero neighbor bit
+00A5   01C4           00317     clrf mystate; do if you found a zero-state neighbor. wait a bit after detecting zero or wavefront mo
+                            ves 'instantaneously' across array
+                      00318     ;disable interrupt on change (IOCIE bit in INTCON register)
+00A6   118B           00319     bcf INTCON,IOCIE;disable interrupt on change
+00A7   3004           00320     movlw NUM_STATES
+00A8   00C6           00321     movwf maxcheck
+00A9   3008           00322     movlw STATE_PERIOD;
+00AA   00C5           00323     movwf tmr2cycles;
+00AB   01C9           00324 endtmr2iserv clrf oncounts
+                      00325 ;things to do outside interrupt routine--adjust ontmr and offtmr dep on state
+00AC   0008           00326         return
+                      00327 
+00AD   0AC9           00328 pin013iserv incf oncounts,f;
+                      00329    ;bcf IOCAF,0;clear pin interrupt flag, datasheet has a better way to clear the IOCAFx bit when x may 
+                            change 
+00AE   019C           00330    clrf IOCAF; okay just clear it all, we're only watching one pin at a time anyway
+00AF   0008           00331    return; handle interrupt on change
+                      00332     
+                      00333   ;increment counter associated with the pin.  start with just pin 0!
+                      00334    
+                      00335 
+                      00336 ; remaining code goes here, 
+                      00337 ; Set up four different duty cycles (PWM) 10, 30, 60 and 90 pct at rates greater than 200 Hz (DONE but p
+                            rob need current reg)
+                      00338 ; The 10pct one should have a far different frequency (say 1000 Hz vs 200 Hz for all others)(DONE but li
+                            mited)
+                      00339 ; First select the duty cycle in code & compare led brightness side by side with 4 pics. done
+                      00340 ; and check the waveform on the oscilloscope 
+                      00341 ; Then have it auto step through the four different states, changing about 1 Hz USE RETLW and TMR2, done
+                            .
+                      00342 ; Then add a pulse counter that can run on another pin while timer0 is doing its thing, at the end of th
+                            e
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  8
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00343 ; 1 second period--done
+                      00344 ; Then add branching, if you're at 90 pct duty cycle watch that pin and switch to 10pct only if 10pct de
+                            tected--done
+                      00345 ; Then have it check each of the three other pins for the 10pct signal, not just the one pin. Done.
+                      00346 ; Then add a randomizer subroutine to select a random duty cycle on startup, see my .txt file for a shor
+                            t code segment
+                      00347 ; that does randomization. What about turning off pullup resistor and counting odd or even pulses...
+                      00348 ; Did something using temp sensor...it's randomish, needs improving
+                      00349 ; Also needs to go about 3-4x faster
+                      00350 ; Also consider reversing cycle order so it hangs out in dimmest state most of the time saving power
+                      00351 ; Then have it break out of static by going to randomizer if state hasn't changed for five or 10 cycles.
+                            Created a lifecounter variable
+                      00352 
+                      00353 
+                      00354 
+                      00355 
+                      00356 
+                      00357 
+                      00358         END                       ; directive 'end of program'
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE  9
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+ADCON                             0000001F
+ADCS0                             00000005
+ADCS1                             00000006
+ADCS2                             00000007
+ADFVR0                            00000000
+ADFVR1                            00000001
+ADIE                              00000006
+ADIF                              00000006
+ADON                              00000000
+ADRES                             0000001E
+ANSA0                             00000000
+ANSA1                             00000001
+ANSA2                             00000002
+ANSELA                            00000008
+BORCON                            0000003F
+BORFS                             00000006
+BORRDY                            00000000
+C                                 00000000
+CFGS                              00000006
+CHS0                              00000002
+CHS1                              00000003
+CHS2                              00000004
+CLC1CON                           00000031
+CLC1GLS0                          00000035
+CLC1GLS1                          00000036
+CLC1GLS2                          00000037
+CLC1GLS3                          00000038
+CLC1IE                            00000003
+CLC1IF                            00000003
+CLC1POL                           00000034
+CLC1SEL0                          00000032
+CLC1SEL1                          00000033
+CLKRCON                           00000026
+CLKROE                            00000006
+CWG1CON0                          00000039
+CWG1CON1                          0000003A
+CWG1CON2                          0000003B
+CWG1DBF                           0000003D
+CWG1DBF0                          00000000
+CWG1DBF1                          00000001
+CWG1DBF2                          00000002
+CWG1DBF3                          00000003
+CWG1DBF4                          00000004
+CWG1DBF5                          00000005
+CWG1DBR                           0000003C
+CWG1DBR0                          00000000
+CWG1DBR1                          00000001
+CWG1DBR2                          00000002
+CWG1DBR3                          00000003
+CWG1DBR4                          00000004
+CWG1DBR5                          00000005
+D1N                               00000000
+D1S0                              00000000
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 10
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+D1S1                              00000001
+D1S2                              00000002
+D1T                               00000001
+D2N                               00000002
+D2S0                              00000004
+D2S1                              00000005
+D2S2                              00000006
+D2T                               00000003
+D3N                               00000004
+D3S0                              00000000
+D3S1                              00000001
+D3S2                              00000002
+D3T                               00000005
+D4N                               00000006
+D4S0                              00000004
+D4S1                              00000005
+D4S2                              00000006
+D4T                               00000007
+DC                                00000001
+F                                 00000001
+FREE                              00000004
+FSR                               00000004
+FVRCON                            0000001D
+FVREN                             00000007
+FVRRDY                            00000006
+G1ARSEN                           00000006
+G1ASDLA0                          00000004
+G1ASDLA1                          00000005
+G1ASDLB0                          00000006
+G1ASDLB1                          00000007
+G1ASDSCLC1                        00000000
+G1ASDSFLT                         00000001
+G1ASE                             00000007
+G1CS0                             00000000
+G1EN                              00000007
+G1IS0                             00000000
+G1IS1                             00000001
+G1OEA                             00000005
+G1OEB                             00000006
+G1POL                             00000000
+G1POLA                            00000003
+G1POLB                            00000004
+G2POL                             00000001
+G3POL                             00000002
+G4D1N                             00000000
+G4D1T                             00000001
+G4D2N                             00000002
+G4D2T                             00000003
+G4D3N                             00000004
+G4D3T                             00000005
+G4D4N                             00000006
+G4D4T                             00000007
+G4POL                             00000003
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 11
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+GIE                               00000007
+GO_NOT_DONE                       00000001
+HFIOFR                            00000003
+HFIOFS                            00000000
+INDF                              00000000
+INTCON                            0000000B
+INTE                              00000004
+INTEDG                            00000006
+INTF                              00000001
+IOCAF                             0000001C
+IOCAF0                            00000000
+IOCAF1                            00000001
+IOCAF2                            00000002
+IOCAF3                            00000003
+IOCAN                             0000001B
+IOCAN0                            00000000
+IOCAN1                            00000001
+IOCAN2                            00000002
+IOCAN3                            00000003
+IOCAP                             0000001A
+IOCAP0                            00000000
+IOCAP1                            00000001
+IOCAP2                            00000002
+IOCAP3                            00000003
+IOCIE                             00000003
+IOCIF                             00000000
+IRCF0                             00000004
+IRCF1                             00000005
+IRCF2                             00000006
+IRP                               00000007
+LATA                              00000007
+LATA0                             00000000
+LATA1                             00000001
+LATA2                             00000002
+LC1D1S0                           00000000
+LC1D1S1                           00000001
+LC1D1S2                           00000002
+LC1D2S0                           00000004
+LC1D2S1                           00000005
+LC1D2S2                           00000006
+LC1D3S0                           00000000
+LC1D3S1                           00000001
+LC1D3S2                           00000002
+LC1D4S0                           00000004
+LC1D4S1                           00000005
+LC1D4S2                           00000006
+LC1EN                             00000007
+LC1G1D1N                          00000000
+LC1G1D1T                          00000001
+LC1G1D2N                          00000002
+LC1G1D2T                          00000003
+LC1G1D3N                          00000004
+LC1G1D3T                          00000005
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 12
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+LC1G1D4N                          00000006
+LC1G1D4T                          00000007
+LC1G1POL                          00000000
+LC1G2D1N                          00000000
+LC1G2D1T                          00000001
+LC1G2D2N                          00000002
+LC1G2D2T                          00000003
+LC1G2D3N                          00000004
+LC1G2D3T                          00000005
+LC1G2D4N                          00000006
+LC1G2D4T                          00000007
+LC1G2POL                          00000001
+LC1G3D1N                          00000000
+LC1G3D1T                          00000001
+LC1G3D2N                          00000002
+LC1G3D2T                          00000003
+LC1G3D3N                          00000004
+LC1G3D3T                          00000005
+LC1G3D4N                          00000006
+LC1G3D4T                          00000007
+LC1G3POL                          00000002
+LC1G4D1N                          00000000
+LC1G4D1T                          00000001
+LC1G4D2N                          00000002
+LC1G4D2T                          00000003
+LC1G4D3N                          00000004
+LC1G4D3T                          00000005
+LC1G4D4N                          00000006
+LC1G4D4T                          00000007
+LC1G4POL                          00000003
+LC1INTN                           00000003
+LC1INTP                           00000004
+LC1MODE0                          00000000
+LC1MODE1                          00000001
+LC1MODE2                          00000002
+LC1OE                             00000006
+LC1OUT                            00000005
+LC1POL                            00000007
+LCEN                              00000007
+LCINTN                            00000003
+LCINTP                            00000004
+LCMODE0                           00000000
+LCMODE1                           00000001
+LCMODE2                           00000002
+LCOE                              00000006
+LCOUT                             00000005
+LED                               00000002
+LED_BITMAP                        00000004
+LFIOFR                            00000001
+LWLO                              00000005
+MAX_COUNTS                        0000000C
+MIN_COUNTS                        00000004
+N1CKS0                            00000000
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 13
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+N1CKS1                            00000001
+N1EN                              00000007
+N1OE                              00000006
+N1OUT                             00000005
+N1PFM                             00000000
+N1POL                             00000004
+N1PWS0                            00000005
+N1PWS1                            00000006
+N1PWS2                            00000007
+NCO1ACC                           00000027
+NCO1ACC0                          00000000
+NCO1ACC1                          00000001
+NCO1ACC10                         00000002
+NCO1ACC11                         00000003
+NCO1ACC12                         00000004
+NCO1ACC13                         00000005
+NCO1ACC14                         00000006
+NCO1ACC15                         00000007
+NCO1ACC16                         00000000
+NCO1ACC17                         00000001
+NCO1ACC18                         00000002
+NCO1ACC19                         00000003
+NCO1ACC2                          00000002
+NCO1ACC20                         00000004
+NCO1ACC21                         00000005
+NCO1ACC22                         00000006
+NCO1ACC23                         00000007
+NCO1ACC3                          00000003
+NCO1ACC4                          00000004
+NCO1ACC5                          00000005
+NCO1ACC6                          00000006
+NCO1ACC7                          00000007
+NCO1ACC8                          00000000
+NCO1ACC9                          00000001
+NCO1ACCH                          00000028
+NCO1ACCL                          00000027
+NCO1ACCU                          00000029
+NCO1CLK                           0000002E
+NCO1CON                           0000002D
+NCO1IE                            00000004
+NCO1IF                            00000004
+NCO1INC                           0000002A
+NCO1INC0                          00000000
+NCO1INC1                          00000001
+NCO1INC10                         00000002
+NCO1INC11                         00000003
+NCO1INC12                         00000004
+NCO1INC13                         00000005
+NCO1INC14                         00000006
+NCO1INC15                         00000007
+NCO1INC16                         00000000
+NCO1INC17                         00000001
+NCO1INC18                         00000002
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 14
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+NCO1INC19                         00000003
+NCO1INC2                          00000002
+NCO1INC20                         00000004
+NCO1INC21                         00000005
+NCO1INC22                         00000006
+NCO1INC23                         00000007
+NCO1INC3                          00000003
+NCO1INC4                          00000004
+NCO1INC5                          00000005
+NCO1INC6                          00000006
+NCO1INC7                          00000007
+NCO1INC8                          00000000
+NCO1INC9                          00000001
+NCO1INCH                          0000002B
+NCO1INCL                          0000002A
+NCO1INCU                          0000002C
+NOT_BOR                           00000000
+NOT_PD                            00000003
+NOT_POR                           00000001
+NOT_TO                            00000004
+NOT_WPUEN                         00000007
+NUM_NEIGHBORS                     00000003
+NUM_STATES                        00000004
+OPTION_REG                        0000000E
+OSCCON                            00000010
+PCL                               00000002
+PCLATH                            0000000A
+PCLH0                             00000000
+PCON                              0000000F
+PEIE                              00000006
+PIE1                              0000000D
+PIR1                              0000000C
+PMADR                             00000020
+PMADR8                            00000000
+PMADRH                            00000021
+PMADRL                            00000020
+PMCON1                            00000024
+PMCON2                            00000025
+PMDAT                             00000022
+PMDATH                            00000023
+PMDATL                            00000022
+POL                               00000007
+PORTA                             00000005
+PORTA0                            00000000
+PORTA1                            00000001
+PORTA2                            00000002
+PORTA3                            00000003
+PR2                               00000012
+PS0                               00000000
+PS1                               00000001
+PS2                               00000002
+PSA                               00000003
+PWM1CON                           00000016
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 15
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+PWM1CON0                          00000016
+PWM1DCH                           00000015
+PWM1DCH0                          00000000
+PWM1DCH1                          00000001
+PWM1DCH2                          00000002
+PWM1DCH3                          00000003
+PWM1DCH4                          00000004
+PWM1DCH5                          00000005
+PWM1DCH6                          00000006
+PWM1DCH7                          00000007
+PWM1DCL                           00000014
+PWM1DCL0                          00000006
+PWM1DCL1                          00000007
+PWM1EN                            00000007
+PWM1OE                            00000006
+PWM1OUT                           00000005
+PWM1POL                           00000004
+PWM2CON                           00000019
+PWM2CON0                          00000019
+PWM2DCH                           00000018
+PWM2DCH0                          00000000
+PWM2DCH1                          00000001
+PWM2DCH2                          00000002
+PWM2DCH3                          00000003
+PWM2DCH4                          00000004
+PWM2DCH5                          00000005
+PWM2DCH6                          00000006
+PWM2DCH7                          00000007
+PWM2DCL                           00000017
+PWM2DCL0                          00000006
+PWM2DCL1                          00000007
+PWM2EN                            00000007
+PWM2OE                            00000006
+PWM2OUT                           00000005
+PWM2POL                           00000004
+RD                                00000000
+RP0                               00000005
+RP1                               00000006
+SBOREN                            00000007
+SHAKE_UP                          0000000A
+STATE_PERIOD                      00000008
+STATUS                            00000003
+SWDTEN                            00000000
+Start                             00000018
+T0CS                              00000005
+T0SE                              00000004
+T2CKPS0                           00000000
+T2CKPS1                           00000001
+T2CON                             00000013
+TMR0                              00000001
+TMR0IE                            00000005
+TMR0IF                            00000002
+TMR2                              00000011
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 16
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+TMR2IE                            00000001
+TMR2IF                            00000001
+TMR2ON                            00000002
+TOUTPS0                           00000003
+TOUTPS1                           00000004
+TOUTPS2                           00000005
+TOUTPS3                           00000006
+TRISA                             00000006
+TSEN                              00000005
+TSRNG                             00000004
+VREGCON                           0000003E
+VREGPM0                           00000000
+VREGPM1                           00000001
+W                                 00000000
+WDTCON                            00000030
+WDTPS0                            00000001
+WDTPS1                            00000002
+WDTPS2                            00000003
+WDTPS3                            00000004
+WDTPS4                            00000005
+WPUA                              00000009
+WPUA0                             00000000
+WPUA1                             00000001
+WPUA2                             00000002
+WPUA3                             00000003
+WR                                00000001
+WREN                              00000002
+WRERR                             00000003
+Z                                 00000002
+_BOREN_NSLEEP                     00003FFD
+_BOREN_OFF                        00003FF9
+_BOREN_ON                         00003FFF
+_BOREN_SBODEN                     00003FFB
+_BORV_24                          00003FFF
+_BORV_27                          00003BFF
+_CONFIG                           00002007
+_CP_OFF                           00003FFF
+_CP_ON                            00003F7F
+_DEVID1                           00002006
+_FOSC_EC                          00003FFF
+_FOSC_INTOSC                      00003FFE
+_IDLOC0                           00002000
+_IDLOC1                           00002001
+_IDLOC2                           00002002
+_IDLOC3                           00002003
+_LPBOR_OFF                        00003DFF
+_LPBOR_ON                         00003FFF
+_LVP_OFF                          00003EFF
+_LVP_ON                           00003FFF
+_MCLRE_OFF                        00003FBF
+_MCLRE_ON                         00003FFF
+_PWRTE_OFF                        00003FFF
+_PWRTE_ON                         00003FDF
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 17
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+_WDTE_NSLEEP                      00003FF7
+_WDTE_OFF                         00003FE7
+_WDTE_ON                          00003FFF
+_WDTE_SWDTEN                      00003FEF
+_WRT_ALL                          000027FF
+_WRT_BOOT                         000037FF
+_WRT_HALF                         00002FFF
+_WRT_OFF                          00003FFF
+__10F322                          00000001
+again                             0000003D
+delcounter                        0000004B
+endtmr2iserv                      000000AB
+foundzero                         000000A4
+intrStatus                        00000041
+intrW                             00000040
+lifecounter                       0000004C
+lildelay                          00000063
+maxcheck                          00000046
+myofftime                         0000006B
+myontime                          00000071
+mystate                           00000044
+newbit                            0000004F
+nextbit                           00000058
+offtmr                            00000042
+oncounts                          00000049
+ontmr                             00000043
+pin013iserv                       000000AD
+pincycle                          00000048
+randomstate                       00000047
+setmaxcheck                       00000066
+skipto                            00000093
+tmr0iserv                         0000007D
+tmr2cycles                        00000045
+tmr2iserv                         00000084
+watchingpin                       00000047
+whichpin                          00000077
+zeroneighbor                      0000004A
+
+
+MEMORY USAGE MAP ('X' = Used,  '-' = Unused)
+
+0000 : XXX-XXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0040 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0080 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX ----------------
+2000 : -------X-------- ---------------- ---------------- ----------------
+
+All other memory blocks unused.
+
+Program Memory Words Used:   175
+Program Memory Words Free:   337
+
+MPASM  5.42            TRILIFEWITHSENSING.ASM   4-22-2012  18:11:04         PAGE 18
+
+
+
+
+
+
+Errors   :     0
+Warnings :     0 reported,     0 suppressed
+Messages :     0 reported,     0 suppressed
+
+
