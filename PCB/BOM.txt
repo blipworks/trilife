@@ -1,13 +1,29 @@
 Bill of Materials for Trilife Board
 
-R1, R2, R3, R4: 220 ohm 1/4 watt resistor, Digikey 220KQBK-ND
+R1, R2, R3, R4: 220 ohm 1/4 watt resistor, Digikey 220QBK-ND
+
 U1 PIC10F322, DigiKey PIC10F322-I/P-ND
-LED Red, Kingbright 5mm dia, wide angle. Digikey 754-1564-ND
-C1 0.1 uF, 0.1" lead spacing ceramic capacitor. Adafruit product 753 or similar
+
+LED Red, Kingbright 5mm dia, wide angle. Digikey 754-1564-ND, Mouser or direct from Kingbright part WP9294SEC/J3
+
+C1 0.1 uF, 0.1" lead spacing ceramic capacitor. Adafruit product 753, Digikey 399-4151-ND or similar
 
 Foot: #4-40x1.5 inch screw, McMaster 91772A119
+Use a #4 nut if the board hole doesn't hold the screw tightly
 
 Spacer: Nylon 1.25 inch long, 0.25 inch outer diameter, for #4 screw, McMaster 94639A210
 
 Socket (2 pcs) 4-position 0.1" pitch right angle socket, Digikey S5479-ND
 Plug (1 pc) 4-pin 0.1" pitch right angle header, Digikey 609-3319-ND
+
+
+
+
+Bill of Materials for Connector Board
+You need 2 of the 4-prong plugs per connector board:
+4-pin 0.1" pitch right angle header, Digikey 609-3319-ND
+
+For Power Plug Connector Board
+2.1 mm jack, part CP-202-AH-ND and 2 of the 4-prong plugs 609-3319-ND
+
+A foot and spacer are optional on the connector boards, the hole in the spacer is good for hanging up the display on a wall.
