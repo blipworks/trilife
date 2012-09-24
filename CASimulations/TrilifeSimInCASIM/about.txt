@@ -1,0 +1,3 @@
+Download casim.jar from www.jcasim.de
+Set up a triangular lattice with free boundary conditions
+GH_4State_TrilifeRules.ca contains the 4-state rules that are similar to what Trilife uses. (Though Trilife has each pixel running on its own independent clock) 
