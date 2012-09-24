@@ -1,12 +1,12 @@
 MPLINK 4.40, Linker
-Linker Map File - Created Sun Apr 22 18:11:05 2012
+Linker Map File - Created Sun Aug 26 08:24:56 2012
 
                                  Section Info
                   Section       Type    Address   Location Size(Bytes)
                 ---------  ---------  ---------  ---------  ---------
                    .org_0       code   0x000000    program   0x000000
                    .org_2       code   0x000000    program   0x000006
-                   .org_3       code   0x000004    program   0x000158
+                   .org_3       code   0x000004    program   0x000162
                    .org_1       code   0x0000ff    program   0x000000
 .config_2007_TRILIFEWITHSENSING.O       code   0x002007    program   0x000002
 
@@ -16,9 +16,9 @@ Linker Map File - Created Sun Apr 22 18:11:05 2012
                                Start         End      
                            ---------   ---------      
                             0x000000    0x000002      
-                            0x000004    0x0000af      
+                            0x000004    0x0000b4      
                             0x002007    0x002007      
-            176 out of 518 program addresses used, program memory utilization is 33%
+            181 out of 518 program addresses used, program memory utilization is 34%
 
 
 
@@ -27,17 +27,18 @@ Linker Map File - Created Sun Apr 22 18:11:05 2012
                 ---------  ---------  ---------  --------- ---------                
                     Start   0x000018    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                     again   0x00003d    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-             endtmr2iserv   0x0000ab    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-                foundzero   0x0000a4    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+             endtmr2iserv   0x0000b0    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+                foundzero   0x0000a7    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                  lildelay   0x000063    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                 myofftime   0x00006b    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                  myontime   0x000071    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                    newbit   0x00004f    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                   nextbit   0x000058    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-              pin013iserv   0x0000ad    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+              pin013iserv   0x0000b2    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
               randomstate   0x000047    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
               setmaxcheck   0x000066    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-                   skipto   0x000093    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+                   skipit   0x000092    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+                   skipto   0x000096    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                 tmr0iserv   0x00007d    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                 tmr2iserv   0x000084    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                  whichpin   0x000077    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
@@ -59,9 +60,10 @@ Linker Map File - Created Sun Apr 22 18:11:05 2012
                  whichpin   0x000077    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                 tmr0iserv   0x00007d    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
                 tmr2iserv   0x000084    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-                   skipto   0x000093    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-                foundzero   0x0000a4    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-             endtmr2iserv   0x0000ab    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
-              pin013iserv   0x0000ad    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+                   skipit   0x000092    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+                   skipto   0x000096    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+                foundzero   0x0000a7    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+             endtmr2iserv   0x0000b0    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
+              pin013iserv   0x0000b2    program     static C:\Cindy\Products\Trilife\TrilifeCodeWithSensing\TrilifeWithSensing.ASM
 
 

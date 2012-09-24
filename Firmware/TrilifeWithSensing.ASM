@@ -1,7 +1,7 @@
 ;**********************************************************************
 ;                                                                     *
 ;    Filename:	    TrilifeWithSensing.asm                          *
-;    Date:              1/24/2012                                      *
+;    Date:              8/26/2012                                      *
 ;    File Version:         1                                          *
 ;                                                                     *
 ;    Author:            CK Harnett                                    *
@@ -46,14 +46,15 @@ LED equ 0x02; LED on pin RA2
 
 ;***** VARIABLE DEFINITIONS
 LED_BITMAP equ 0x04;  it's what you xor with LATA to toggle 5V on pin RA2
-STATE_PERIOD equ 0x08; trying a faster speed
+STATE_PERIOD equ 0x04; trying even faster speed
+;STATE_PERIOD equ 0x08; trying a faster speed
 ;STATE_PERIOD equ 0x10; constant telling how many tmr2 cycles to hold in each state
 NUM_STATES equ 0x04; Number of states, for example 0x04 means four states 0,1,2 and 3. You still have to define each state's brightness
 NUM_NEIGHBORS equ 0x03; Number of neighbors in trianguar array
 MIN_COUNTS equ 0x04; must be at least four positive transitions during the timer2 period to signal an active neighbor--
 ;MAX_COUNTS equ 0x0A; if you had more than 10 counts then your neighbor was in state 1,2, or 3.
 MAX_COUNTS equ 0x0C; if you had more than 13 counts, your neighbor was in state 1,2,or 3
-SHAKE_UP equ 0x0A; after this many cycles stuck at highest state, go into a random state
+SHAKE_UP equ 0xA0; after about SHAKE_UP/3 cycles stuck at end state, reset to help a new pattern start
 intrW equ 0x40; used in interrupt to save w
 intrStatus equ 0x41; used in interrupt to save status
 offtmr equ 0x42;holds settings for "off" time of LED in a given cell state
@@ -63,7 +64,7 @@ tmr2cycles equ 0x45; keeps track of how many tmr2 cycles have elapsed
 maxcheck equ 0x46; this is zero when we go one past the maximum state
 watchingpin equ 0x47; cycle between pins to watch, ra0 ra1 and ra3
 pincycle equ 0x48; a cyclic index into watchingpin, it's 0 1 2 3
-oncounts equ 0x49; keep track of positive pin transitions when checking neighbors' statesw
+oncounts equ 0x49; keep track of positive pin transitions when checking neighbors' states
 zeroneighbor equ 0x4A; keep track of whether a zero neighbor was found, but delay responding for one cycle
 delcounter equ 0x4B; make a 200 microsecond delay for temp conversion
 lifecounter equ 0x4C; count whether we reached SHAKE_UP number of cycles at highest state
@@ -156,7 +157,7 @@ Start:
    clrf zeroneighbor;start out with no neighbors known in state 0
 
    movlw SHAKE_UP
-   movwf lifecounter; set up number of cycles to wait at top state before randomizing
+   movwf lifecounter; set up number of cycles to wait at end state before randomizing
 
    movlw 0xFF; set tmr2 period
    movwf PR2
@@ -238,7 +239,7 @@ myofftime addwf PCL,F; get LED off-time for a given state
     retlw b'00000001';state 1 4x prescaler
     retlw b'00000010';state 2  8xprescaler
     retlw b'00000011';state 3  16xprescaler
-    ;retlw b'00000100';state 0 32xprescaler ; Cindy swapped around so it hangs out in dimmest state
+    ;retlw b'00000100';state 0 32xprescaler ; Cindy swapped around so it hangs out in dimmest state (saving power)
     ;retlw b'00000010';state 1 8x prescaler
     ;retlw b'00000001';state 2  4xprescaler
     ;retlw b'00000000';state 3  2xprescaler
@@ -290,7 +291,10 @@ tmr2iserv  decfsz tmr2cycles,f ;use tmr2 to step between cell states
     goto foundzero
     decf mystate,f; hold it back at max state and start checking neighbors for zeroes
     incf maxcheck,f;and undo auto-decrement on maxcheck 
-    decfsz pincycle,f; makes it so we are going to check a new pin next time through,
+    decfsz lifecounter,f; decrement lifecounter to keep track of how many times we have been in lowest state
+    goto skipit; proceed normally if lifecounter still is nonzero. otherwise if lifecounter has hit zero go to start
+    goto Start; 
+skipit decfsz pincycle,f; makes it so we are going to check a new pin next time through,
     goto skipto; do this if we didn't reduce pincycle to zero
     movlw 0x03; 
     movwf pincycle; if we got a zero set pincycle back to 3, watching RA0 next time
@@ -320,6 +324,8 @@ foundzero  bcf zeroneighbor,0; clear zero neighbor bit
     movwf maxcheck
     movlw STATE_PERIOD;
     movwf tmr2cycles;
+    movlw SHAKE_UP
+    movwf lifecounter; reset life counter to maximum
 endtmr2iserv clrf oncounts
 ;things to do outside interrupt routine--adjust ontmr and offtmr dep on state
    	return
@@ -346,7 +352,7 @@ pin013iserv incf oncounts,f;
 ; that does randomization. What about turning off pullup resistor and counting odd or even pulses...
 ; Did something using temp sensor...it's randomish, needs improving
 ; Also needs to go about 3-4x faster
-; Also consider reversing cycle order so it hangs out in dimmest state most of the time saving power
+; Also consider reversing cycle order so it hangs out in dimmest state most of the time saving power--done
 ; Then have it break out of static by going to randomizer if state hasn't changed for five or 10 cycles.Created a lifecounter variable
 
 
